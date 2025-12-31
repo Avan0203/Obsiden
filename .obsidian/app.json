@@ -1,6 +1,6 @@
 {
   "vimMode": false,
-  "showLineNumber": false,
+  "showLineNumber": true,
   "showFrontmatter": true,
   "livePreview": true,
   "spellcheck": true,
