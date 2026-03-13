@@ -3,6 +3,7 @@
 ## 分类
 
 有三种不同级别的配置文件：系统、全局、本地
+
 ```git
 #查看系统config
 git config --system --list
@@ -13,26 +14,29 @@ git config --global  --list
 #查看当前仓库配置信息
 git config --local  --list
 ```
+
 1. /etc/gitconfig：包含了适用于系统所有用户和所有项目的值。是git的安装目录`Win：D:\Git\mingw64\etc\gitconfig` --system 系统级
 
 2. ~/.gitconfig：只适用于当前登录用户的配置。如`Win：C:\Users\Administrator.gitconfig` --global 全局
 
 3. 位于git项目目录中的.git/config：适用于特定git项目的配置。–local当前项目
 
->  优先级：–local > –global > –system
+> 优先级：–local > –global > –system
 
 ## 设置用户名和邮箱
 
 当安装Git后首先要做的事情是设置你的用户名称和e-mail地址。这是非常重要的，因为每次Git提交都会使用该信息。它被永远的嵌入到了你的提交中：
 
-```
+```git
 git config --global user.name 名称
 git config --global user.email 邮箱@qq.com   
 ```
+
 如果你希望在一个特定的项目中使用不同的名称或e-mail地址，你可以在该项目中运行 `--local` 来代替 `--global`。
 
 ## 所有参数
-```
+
+```git
 语法: git config [<options>]        
         
 文件位置        
