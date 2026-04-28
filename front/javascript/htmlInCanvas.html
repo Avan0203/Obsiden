@@ -1,0 +1,193 @@
+<!--
+ * @Author: wuyifan wuyifan@udschina.com
+ * @Date: 2026-04-27 16:05:27
+ * @LastEditors: wuyifan wuyifan@udschina.com
+ * @LastEditTime: 2026-04-27 17:27:07
+ * @FilePath: \Obsiden\front\javascript\htmlInCanvas.html
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>html in canvas</title>
+  </head>
+  <style>
+    form {
+      position: absolute;
+      top: 100px;
+      left: 0;
+      width: 200px;
+      height: auto;
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 20px;
+      border-radius: 10px;
+      color: white;
+      font-size: 16px;
+      font-weight: bold;
+      text-align: center;
+      z-index: 1000;
+    }
+    #username,
+    #password {
+      width: 70px;
+      height: 20px;
+      margin-bottom: 3px;
+      padding: 5px;
+      border-radius: 5px;
+      border: 1px solid white;
+    }
+    #submit {
+      width: 100%;
+      height: 25px;
+      margin-top: 10px;
+      padding: 4px 10px;
+      border-radius: 5px;
+      border: 1px solid white;
+      background-color: rebeccapurple;
+      color: white;
+      font-size: 16px;
+      font-weight: bold;
+      text-align: center;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+    #submit:hover {
+      background-color: #c669ff;
+    }
+  </style>
+  <body>
+    <!-- 1) 新特性入口：layoutsubtree 让 canvas 内子树（如 form）可参与后续“元素到纹理”的实验链路 -->
+    <canvas
+      id="canvas"
+      layoutsubtree
+      style="position: absolute; top: 0; left: 0; width: 100%; height: 100%"
+    >
+      <form action="" id="form">
+        <div>
+          Username:<input type="username" name="username" id="username" />
+        </div>
+        <div>
+          Password:<input type="password" name="password" id="password" />
+        </div>
+        <div><input type="submit" id="submit" value="Login" /></div>
+      </form>
+    </canvas>
+  </body>
+  <script type="module">
+    import {
+      WebGLRenderer,
+      Scene,
+      PerspectiveCamera,
+      Mesh,
+      ShaderMaterial,
+      PlaneGeometry,
+    } from "https://cdn.jsdelivr.net/npm/three@0.184.0/+esm";
+    import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/controls/OrbitControls.js/+esm";
+    const canvas = document.getElementById("canvas");
+
+    const context = canvas.getContext("webgl2", { antialias: true });
+    const renderer = new WebGLRenderer({ canvas, context, antialias: true });
+    const scene = new Scene();
+    const camera = new PerspectiveCamera(75, 1, 0.1, 1000);
+    camera.position.z = 10;
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    renderer.domElement.style.touchAction = "none";
+    renderer.domElement.addEventListener("contextmenu", (event) =>
+      event.preventDefault(),
+    );
+
+    function resize() {
+      const width = canvas.clientWidth || window.innerWidth;
+      const height = canvas.clientHeight || window.innerHeight;
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    const material = new ShaderMaterial({
+      uniforms: {
+        uMap: { value: 0 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        precision highp float;
+        uniform sampler2D uMap;
+        varying vec2 vUv;
+        void main() {
+          gl_FragColor = texture2D(uMap, vUv);
+        }
+      `,
+    });
+
+    const form = document.getElementById("form");
+
+    // 2) 新特性核心：准备一个原生 WebGL 纹理，后面把 DOM 元素（form）直接上传到这个纹理中
+    const gl = renderer.getContext();
+    const rawElementTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, rawElementTexture);
+    // 纹理缩小时使用线性采样，避免文字/边缘过于锯齿
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    // 纹理放大时同样使用线性采样，视觉更平滑
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    // 非 2 的幂尺寸 DOM 纹理常用 CLAMP_TO_EDGE，避免边缘重复采样产生拉丝
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    // 让上传数据在 Y 方向翻转，和屏幕坐标方向对齐，避免上下颠倒
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
+    // 将form的尺寸缩小10倍
+    const { width, height } = form.getBoundingClientRect();
+    const formSize = {
+      width: width / 10,
+      height: height / 10,
+    };
+
+    const mesh = new Mesh(
+      new PlaneGeometry(formSize.width, formSize.height),
+      material,
+    );
+    scene.add(mesh);
+
+    function uploadElementToTexture() {
+      // 1) 前置能力检测：如果浏览器未开启实验能力，则给出明确提示并停止上传
+      if (typeof gl.texElementImage2D !== "function") {
+        return console.log(
+          "在浏览器中开启 - chrome://flags/#canvas-draw-element 即可使用",
+        );
+      }
+      // 2) 纹理上传流程：激活纹理单元 -> 绑定目标纹理 -> 将 form 像素写入纹理
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, rawElementTexture);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      // texElementImage2D 是本示例新特性的关键：直接把 HTML 元素当作像素源上传到 WebGL 纹理
+      gl.texElementImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        form,
+      );
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      // 3) 每帧同步：持续把最新 DOM 状态写入纹理，保证画面中的表单内容和真实 DOM 始终一致
+      uploadElementToTexture();
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</html>
