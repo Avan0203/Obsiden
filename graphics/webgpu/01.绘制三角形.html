@@ -1,0 +1,132 @@
+<!--
+ * @Author: wuyifan wuyifan@udschina.com
+ * @Date: 2026-07-29 15:31:23
+ * @LastEditors: wuyifan wuyifan@udschina.com
+ * @LastEditTime: 2026-07-30 16:35:08
+ * @FilePath: \Obsiden\graphics\webgpu\01.缁樺埗涓夎褰?html
+ * @Description: 杩欐槸榛樿璁剧疆,璇疯缃甡customMade`, 鎵撳紑koroFileHeader鏌ョ湅閰嶇疆 杩涜璁剧疆: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+-->
+<body>
+  <canvas id="canvas" width="800" height="600"></canvas>
+  <script type="module">
+    async function main() {
+      // 1. 鑾峰彇GPU璁惧
+      const adapter = await navigator.gpu?.requestAdapter();
+      const device = await adapter?.requestDevice();
+      if (!device) {
+        fail("need a browser that supports WebGPU");
+        return;
+      } else {
+        console.log(device);
+        console.log("WebGPU is supported");
+      }
+
+      // 2. 鍒涘缓涓婁笅鏂?
+      const canvas = document.querySelector("canvas");
+      const context = canvas.getContext("webgpu");
+
+      // "rgba8unorm"	R-G-B-A 椤哄簭锛屾瘡閫氶亾 8bit锛寀nsigned normalized
+      // "bgra8unorm"	B-G-R-A 椤哄簭锛屾瘡閫氶亾 8bit锛寀nsigned normalized
+      const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+      // 缁戝畾璁惧
+      context.configure({
+        device,
+        format: presentationFormat,
+      });
+
+      // 3. 创建着色器模块：同一个 WGSL 模块中包含顶点和片元着色器入口
+      const module = device.createShaderModule({
+        label: "our hardcoded red triangle shaders",
+        code: /* wgsl */ `
+             // 顶点着色器：每处理一个顶点执行一次
+             // vertex_index 是 WebGPU 自动提供的内置顶点序号；draw(3) 时依次为 0、1、2
+             @vertex fn vs(
+               @builtin(vertex_index) vertexIndex : u32
+             ) -> @builtin(position) vec4f {
+               // 直接在着色器中写死三个顶点，因此本例不需要创建顶点缓冲区
+               // 坐标位于裁剪空间；由于下面返回的 w 为 1，透视除法后也就是 NDC 坐标
+               let pos = array(
+                 vec2f( 0.0,  0.5),  // 顶部
+                 vec2f(-0.5, -0.5),  // 左下
+                 vec2f( 0.5, -0.5)   // 右下
+               );
+
+               // @builtin(position) 要求返回四维裁剪空间坐标 (x, y, z, w)
+               // 本例是二维图形，所以 z 设为 0；w 设为 1，表示不产生透视缩放
+               return vec4f(pos[vertexIndex], 0.0, 1.0);
+             }
+
+             // 片元着色器：为光栅化生成的每个片元计算颜色
+             // @location(0) 对应渲染管线 fragment.targets 中的第 0 个颜色目标
+             @fragment fn fs() -> @location(0) vec4f {
+               // RGBA = (1, 0, 0, 1)，输出完全不透明的红色
+               return vec4f(1.0, 0.0, 0.0, 1.0);
+             }`,
+      });
+
+      // 4. 创建渲染管线，连接顶点处理、图元装配、光栅化和片元处理阶段
+      const pipeline = device.createRenderPipeline({
+        label: "our hardcoded red triangle pipeline！！",
+        // 根据着色器中的资源绑定自动推导管线布局；本例没有绑定外部资源
+        layout: "auto",
+        vertex: {
+          module,
+          entryPoint: "vs", // 指定上面 WGSL 中的顶点着色器入口
+        },
+        fragment: {
+          module,
+          entryPoint: "fs", // 指定上面 WGSL 中的片元着色器入口
+          // 输出格式必须与 context.configure() 使用的 Canvas 格式一致
+          targets: [{ format: presentationFormat }],
+        },
+        // primitive 未显式设置时，默认 topology 为 "triangle-list"
+        // 因此每三个顶点会被装配成一个独立三角形
+      });
+
+      // 5. 描述一次渲染通道如何使用颜色附件
+      // 描述对象可以复用，但当前 Canvas 纹理的 view 必须在每次渲染时更新
+      const renderPassDescriptor = {
+        label: "our basic canvas renderPass",
+        colorAttachments: [
+          {
+            // view 在 render() 中设置，指向本次呈现所使用的 Canvas 纹理
+            // 开始绘制前，将整个颜色附件清除为不透明灰色
+            clearValue: [0.3, 0.3, 0.3, 1],
+            loadOp: "clear", // 不保留附件原内容，而是使用 clearValue 清屏
+            storeOp: "store", // 渲染结束后保留结果，以便 Canvas 呈现
+          },
+        ],
+      };
+
+      function render() {
+        // Canvas 的当前纹理会随呈现而变化，因此每次渲染都要重新获取
+        // createView() 创建纹理视图，供 Render Pass 将其作为颜色输出目标
+        renderPassDescriptor.colorAttachments[0].view = context
+          .getCurrentTexture()
+          .createView();
+
+        // 创建命令编码器；后续操作只是在 CPU 端记录 GPU 命令，尚未执行
+        const encoder = device.createCommandEncoder({ label: "our encoder" });
+
+        // 开始一个 Render Pass，并按照描述符清除、写入颜色附件
+        const pass = encoder.beginRenderPass(renderPassDescriptor);
+        // 指定接下来 draw 命令所使用的着色器和固定管线状态
+        pass.setPipeline(pipeline);
+        // 绘制三个顶点、一个实例：vertexIndex 依次为 0、1、2
+        // 默认 triangle-list 会将这三个顶点装配成一个三角形
+        pass.draw(3);
+        // 结束 Render Pass，之后不能再通过 pass 记录绘制命令
+        pass.end();
+
+        // 将编码器中记录的命令封装为不可变的命令缓冲区
+        const commandBuffer = encoder.finish();
+        // 提交到设备队列后，GPU 才会异步执行清屏和绘制命令
+        device.queue.submit([commandBuffer]);
+      }
+
+      // 本例只绘制一次静态画面，因此不需要 requestAnimationFrame 动画循环
+      render();
+    }
+    main();
+  </script>
+</body>
